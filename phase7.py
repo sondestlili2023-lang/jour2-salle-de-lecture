@@ -81,26 +81,32 @@ def test_relevé_unique(word2idx, label2idx):
     predire sur un seul relevé (lot de taille 1) ?"""
     torch.manual_seed(GRAINE)
     modele = ModeleTCN(taille_vocab=len(word2idx), n_classes=len(label2idx), norme_par_exemple=False)
-    x_un = torch.randint(2, len(word2idx), (1, 10))
 
     print("\n--- Et pour predire sur un seul relevé (lot de taille 1), avec l'ancien montage (BatchNorm) ? ---")
-    modele.eval()
-    try:
+    print("BatchNorm1d sur un tenseur (lot, canaux, longueur) calcule ses statistiques sur")
+    print("lot x longueur valeurs par canal, pas seulement sur le lot : un seul relevé DE PLUSIEURS")
+    print("jetons fournit donc quand meme plusieurs valeurs par canal.")
+
+    for longueur in (10, 1):
+        x_un = torch.randint(2, len(word2idx), (1, longueur))
+        modele.eval()
         with torch.no_grad():
             modele(x_un)
-        print("  En mode eval() : ca marche -- BatchNorm utilise ses statistiques figees (moyenne/variance")
-        print("  apprises pendant l'entrainement), pas celles du lot courant. Pas de probleme a l'inference.")
-    except Exception as e:
-        print(f"  En mode eval() : echoue -- {e}")
+        print(f"\n  Relevé de {longueur} jeton(s), mode eval() : ca marche toujours -- statistiques figees, pas")
+        print("  celles du lot courant.")
+        modele.train()
+        try:
+            modele(x_un)
+            print(f"  Relevé de {longueur} jeton(s), mode train() : ca marche ({1*longueur} valeurs/canal disponibles).")
+        except Exception as e:
+            print(f"  Relevé de {longueur} jeton(s), mode train() : ECHOUE -- {type(e).__name__}: {e}")
 
-    modele.train()
-    try:
-        modele(x_un)
-        print("  En mode train() : ca marche (inattendu).")
-    except Exception as e:
-        print(f"  En mode train() : ECHOUE -- {type(e).__name__}: {e}")
-        print("  La variance d'UN SEUL exemple n'est pas definie : si jamais ce montage devait continuer")
-        print("  a s'entrainer (ou etre affine) un relevé a la fois, il plante purement et simplement.")
+    print("\n  Conclusion : en usage normal (inference, donc eval()), l'ancien montage ne plante jamais sur")
+    print("  un relevé isole -- ce n'est PAS le meme probleme qu'un lot de 4 en entrainement. Mais si ce")
+    print("  montage devait un jour continuer a s'entrainer relevé par relevé (lot=1, mode train()), il")
+    print("  fonctionne par accident sur un texte de plusieurs mots (la longueur du texte masque le")
+    print("  probleme) et plante net sur le cas degenere d'un texte d'un seul mot -- un bug latent,")
+    print("  intermittent, plus dangereux qu'un plantage systematique.")
 
 
 def main():
