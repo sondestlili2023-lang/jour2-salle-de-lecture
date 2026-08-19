@@ -1043,3 +1043,98 @@ phase 8 a montré qu'elle est la seule à dire la vérité sur les formes
 peu fréquentes. Le Bureau qui a supprimé le vocabulaire des formes pour
 de bonnes raisons ne peut pas se permettre de perdre `diamond` et
 `chevron` une deuxième fois pour économiser 253 Mo de disque.
+
+### Phase 15 : le Conseil pose des questions, vous citez vos sources
+
+**Second cerveau emprunté : `google/flan-t5-small`** (77M paramètres,
+encodeur-décodeur). DistilBERT (phase 14) est un encodeur seul,
+incapable de produire du texte ; la tâche exige de la génération, donc
+un autre modèle emprunté — toujours récupéré librement, jamais entraîné
+par nous, seulement un outil différent pour un travail différent.
+
+**Corpus : le fichier complet**, 88 679 relevés bien formés, `comments`
+**non filtrés** — l'interdiction de vocabulaire de la phase 8 était
+spécifique à la tâche de classification (empêcher la machine de recopier
+le nom de la forme), pas à la lecture générale des témoignages que le
+Conseil demande ici.
+
+**Recherche : TF-IDF + similarité cosinus**, déterministe (aucun réseau
+de neurones dans la recherche elle-même) — comparée à une **méthode
+naïve** : nombre de mots de la question présents tel quels dans le
+relevé, sans pondération. Vérifié par le code : la même question posée
+deux fois retourne exactement les mêmes relevés (`True`).
+
+**Budget de texte : 500 caractères**, fixe, jamais dépassé — choisi
+après une première tentative à 900 caractères (jusqu'à 22 citations) où
+le petit générateur, saturé, se contentait de recopier un numéro de
+citation sans phrase ; à 500 caractères (5 à 9 citations selon la
+question), les réponses redeviennent des phrases lisibles. La vraie
+difficulté n'était donc pas seulement le budget mais bien de choisir
+*quoi* y mettre parmi 88 679 candidats, comme annoncé.
+
+**Premier essai, écarté, gardé ici parce qu'il est instructif :** les
+questions et les instructions du prompt étaient d'abord en français, sur
+un corpus anglophone (NUFORC). Le générateur, 77M paramètres, mélangeait
+consignes et contenu et produisait des réponses vides ou incohérentes.
+Correction : une **traduction anglaise fixe** de chaque question,
+écrite en même temps que l'originale (pas après coup, pas en fonction de
+ce qui marchait mieux) sert de requête réelle au système ; le français
+reste la version officiellement posée par le Conseil. Décision
+d'ingénierie assumée, pas un contournement du résultat.
+
+**Les 8 questions figées** (français posé au Conseil / anglais utilisé
+par le système) :
+
+| # | Français | Anglais (requête réelle) |
+|---|---|---|
+| 1 | Est-ce que les apparitions au-dessus des zones habitées ont une forme particulière ? | Do sightings over populated areas have a particular shape? |
+| 2 | Que décrivent les témoins qui parlent de bruit ? | What do witnesses who mention noise describe? |
+| 3 | Que racontent les témoins qui mentionnent des enfants présents ? | What do witnesses who mention children present describe? |
+| 4 | Que disent les témoins à propos des feux d'artifice ? | What do witnesses say about fireworks? |
+| 5 | Les objets triangulaires sont-ils décrits comme silencieux ? | Are triangular objects described as silent? |
+| 6 | Que rapportent les témoins qui disent avoir eu peur ? | What do witnesses who say they were scared report? |
+| 7 | Les témoins parlent-ils de messages reçus par télépathie ? | Do witnesses mention messages received by telepathy? |
+| 8 | Les témoins mentionnent-ils leur équipe sportive préférée ? *(contrôle hors-sujet)* | Do witnesses mention their favorite sports team? |
+
+**Proportion de réponses correctement sourcées** (lu par moi : le ou les
+relevés cités soutiennent-ils vraiment ce que la réponse affirme ?) :
+
+| Système | Correctement sourcées |
+|---|---|
+| **Mien (TF-IDF)** | **6 / 8 (75 %)** |
+| Naïf (mots-clés) | 4 / 8 (50 %) |
+
+Détail des échecs :
+- **Q1 (naïf)** cite un témoignage situé "over the pasture" (un pâturage)
+  pour répondre à une question sur les *zones habitées* — le mot
+  "sighting" a fait remonter le relevé, mais son contenu contredit la
+  prémisse de la question.
+- **Q3 (naïf)** ne cite qu'un titre d'article ("BLUE ALIEN SIGHTED...")
+  sans jamais dire ce que le témoin décrit à propos des enfants.
+- **Q7 (mien et naïf)** — le mot "messages" fait remonter un relevé sur
+  des lumières formant un motif dans le ciel ("produce five different
+  messages"), sans rapport avec la télépathie ; ma recherche trouve
+  quand même le bon relevé ("wierdest feeling, like telepathy") en tête
+  de liste, la méthode naïve ne le trouve pas du tout — mais ma réponse
+  finale mélange les deux dans la même phrase sans distinguer lequel
+  répond vraiment à la question.
+- **Q8, le contrôle hors-sujet, échoue dans les deux systèmes.** Aucun
+  témoin ne parle de sport, mais le mot "team" apparaît ailleurs ("team
+  of 3 sky divers", "weather team", "scouting team") : les deux méthodes
+  sont purement lexicales, ni l'une ni l'autre ne sait qu'un mot présent
+  n'est pas la même chose qu'une question à laquelle il répond. **Mon
+  seuil de "pas de relevé pertinent" (score TF-IDF < 0,08) ne s'est pas
+  déclenché** — le score était de 0,260, au-dessus du seuil, alors que le
+  résultat est un faux positif caractérisé. Le filet de sécurité contre
+  l'invention existe et fonctionne parfois (voir le format de refus dans
+  le code), mais il est aussi purement lexical que le reste du système :
+  il détecte l'absence de mots communs, pas l'absence de sens commun.
+
+**Ce que ça apprend :** un système "intelligent" (TF-IDF, pondéré par la
+rareté des mots) source correctement 1,5 fois plus souvent qu'une
+recherche naïve par mots-clés — un vrai gain, mesuré, pas supposé. Mais
+les deux échouent exactement de la même façon face à une question dont
+aucun mot n'a de sens dans ce corpus : la leçon de la phase 8 se répète
+ici sous une autre forme — un système qui matche des mots peut sembler
+comprendre sans jamais avoir compris, et la seule protection réelle
+contre l'invention reste un seuil, pas un jugement.
