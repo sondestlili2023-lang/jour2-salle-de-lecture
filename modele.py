@@ -63,11 +63,14 @@ class BlocDilate(nn.Module):
     l'arriere, la ou se trouvent les mots a voir.
     """
 
-    def __init__(self, dim, dilation, noyau=3, residuel=True):
+    def __init__(self, dim, dilation, noyau=3, residuel=True, norme_par_exemple=False):
         super().__init__()
         self.pad_gauche = (noyau - 1) * dilation
         self.conv = nn.Conv1d(dim, dim, kernel_size=noyau, dilation=dilation)
-        self.norme = nn.BatchNorm1d(dim)
+        # norme_par_exemple=True -> GroupNorm(1, dim) : normalise chaque exemple
+        # sur ses propres canaux, independamment des autres exemples du lot
+        # (contrairement a BatchNorm1d, qui a besoin des statistiques du lot).
+        self.norme = nn.GroupNorm(1, dim) if norme_par_exemple else nn.BatchNorm1d(dim)
         self.residuel = residuel
 
     def forward(self, x):
@@ -87,11 +90,13 @@ class ModeleTCN(nn.Module):
     """
 
     def __init__(self, taille_vocab, n_classes, dim_embed=100, dim_cachee=128, dilations=(1, 2, 4, 8, 16),
-                 dropout=0.4, residuel=True):
+                 dropout=0.4, residuel=True, norme_par_exemple=False):
         super().__init__()
         self.embed = nn.Embedding(taille_vocab, dim_embed, padding_idx=0)
         self.projection = nn.Conv1d(dim_embed, dim_cachee, kernel_size=1)
-        self.couches = nn.ModuleList([BlocDilate(dim_cachee, d, residuel=residuel) for d in dilations])
+        self.couches = nn.ModuleList(
+            [BlocDilate(dim_cachee, d, residuel=residuel, norme_par_exemple=norme_par_exemple) for d in dilations]
+        )
         self.dropout = nn.Dropout(dropout)
         self.sortie = nn.Linear(dim_cachee * 2, n_classes)
 
