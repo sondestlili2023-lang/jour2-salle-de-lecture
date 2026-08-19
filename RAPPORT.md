@@ -246,3 +246,53 @@ faire baisser la perte à zéro erreur sur cette architecture.
 **Ce qu'il ne prouve absolument pas :** que le modèle généralisera sur
 73 177 relevés avec un vocabulaire de 7 281 mots partagés entre 19
 classes, où la mémorisation par mot unique ne marche plus.
+
+### Phase 3 : battre le service statistique
+
+Même découpe, mêmes classes que la phase 2 : 19 classes, 73 177 relevés
+(train 51 223 / val 10 977 / test 10 977, 70 %/15 %/15 % stratifiés),
+vocabulaire de 7 281 mots (construit sur le train seul, fréquence ≥ 3,
+pour ne pas fuiter d'information du val/test).
+
+Montages (`modele.py`), 10 époques, Adam/AdamW, meilleure époque sur
+validation retenue (arrêt anticipé) :
+
+- **Linéaire** (service statistique) : sac-de-mots (comptages) → une
+  couche linéaire.
+- **ModeleConv** (le nôtre) : embedding (dim 100) → conv1d (noyau 3) →
+  batchnorm → ReLU → concaténation max-pool/moyenne-pool → dropout (0,4)
+  → linéaire. Le dropout et la concaténation moyenne+max ont été
+  nécessaires : une première version (max-pool seul, sans dropout)
+  surapprenait dès la 2e époque et finissait *derrière* le linéaire
+  (0,529 contre 0,541) — corrigé en ajoutant du dropout et un signal de
+  moyenne en plus du maximum.
+
+| Modèle | Accuracy (test) |
+|---|---|
+| Toujours "light" (référence) | 0,244 |
+| Linéaire (service statistique) | 0,542 |
+| **ModeleConv (le nôtre)** | **0,550** |
+
+Le nôtre passe devant, mais l'écart est modeste (+0,8 point). Explication
+raisonnable : les textes sont très courts (12 mots en médiane, tronqués à
+135 caractères) et beaucoup de témoins citent le nom de la forme dans leur
+texte (voir phase 9) — un simple comptage de mots capte déjà l'essentiel
+du signal sur des phrases aussi télégraphiques ; l'ordre local des mots,
+que seule la convolution voit, n'ajoute qu'un supplément.
+
+![Linéaire -- apprentissage vs validation](figures/phase3_lineaire.png)
+![ModeleConv -- apprentissage vs validation](figures/phase3_conv.png)
+
+Du texte brut au premier nombre qui entre dans le réseau (exemple pris
+dans le jeu de test) :
+
+```
+Texte brut   : ((HOAX))  JUST FOR THE RECORD THESE TIANGLE CRAFTS HAVE BEEN AROUND FOR SOME TIME
+Tokenisé     : ['hoax', 'just', 'for', 'the', 'record', 'these', 'tiangle', 'crafts', ...]
+Identifiants : [3016, 3414, 2555, 6384, 5159, 6396, 1, 1481, ...]
+```
+`tiangle` (faute de frappe pour "triangle") n'est pas dans le vocabulaire
+d'entraînement → identifiant 1 (`<unk>`). Le premier mot du vocabulaire,
+`hoax`, devient un vecteur de 100 nombres (`embed.weight[3016]`) : c'est
+le premier nombre qui entre réellement dans le réseau, tout le reste
+(convolution, pooling, linéaire) ne fait que le transformer.
