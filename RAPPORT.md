@@ -172,3 +172,77 @@ observée dans la colonne `shape` elle-même : elle sert de vérité terrain
 pour vérifier les réponses du système, exactement comme au relevé
 [12/17/1996 02:30] ci-dessus où le texte contient la réponse que la
 colonne structurée a perdue.
+
+## Acte 2 : le détecteur de formes
+
+### État du terrain sur la colonne `shape` (vérifié depuis le fichier)
+
+2 922 relevés sans forme, 29 valeurs distinctes, dont 18 formes réelles
+dépassent 300 relevés (les deux fourre-tout `unknown` et `other` en
+dépassent aussi, mais n'en sont pas). Deux doublons de sens : `round`/
+`circle` et `changed`/`changing`.
+
+### Les trois décisions (phase 3), appliquées dès la phase 2
+
+Prises une fois pour toutes dans `formes.py`, partagé par toutes les
+phases de l'acte pour que "une tâche unique" reste vraie dans le code, pas
+seulement dans l'énoncé :
+
+1. **Les 2 922 relevés sans forme sont écartés.** Rien à superviser sans
+   étiquette ; les garder forcerait à inventer une 20e classe "je ne sais
+   pas", ce qui n'est pas une forme observée.
+2. **Les deux fourre-tout (`unknown`, `other`, 12 566 relevés à eux deux)
+   sont écartés.** Ce ne sont pas des formes : ce sont des aveux
+   d'incertitude du témoin ou du Bureau. Un détecteur de forme entraîné à
+   répondre "unknown" apprendrait à reconnaître l'incertitude, pas une
+   forme.
+3. **Les doublons de sens sont fusionnés** : `round` → `circle` (2
+   relevés), `changed` → `changing` (1 relevé). Même forme, autre mot.
+
+Nécessité technique, distincte des trois décisions ci-dessus mais
+appliquée dans le même module et déclarée ici : les classes retombées
+sous 50 relevés après fusion (`delta`=8, `crescent`=2, `pyramid`=1,
+`flare`=1, `hexagon`=1, `dome`=1 — 14 relevés en tout) sont également
+écartées, sinon la découpe stratifiée train/val/test est impossible à
+faire tenir sur 1 ou 2 exemples et aucun score par classe n'aurait de
+sens dessus.
+
+**Résultat : 19 classes retenues, 73 177 relevés sur 88 679 lignes bien
+formées.** Découpe stratifiée 70 % / 15 % / 15 % (51 223 / 10 977 / 10 977
+relevés), même graine aléatoire partout (`GRAINE = 42` dans `formes.py`).
+
+### Phase 2 : test d'acceptation du Bureau
+
+8 relevés réels, choisis pour couvrir 8 formes différentes (`cylinder`,
+`fireball`, `formation`, `light`, `rectangle`, `cross`, `sphere`, `egg`),
+soumis au montage exact de la phase 3 (`ModeleConv` : embedding → conv1d
+→ batchnorm → ReLU → max-pool global → linéaire, voir `modele.py`).
+
+**Ça a marché du premier essai**, sans qu'il ait fallu changer quoi que
+ce soit : 8/8 corrects en seulement 3 itérations (Adam, lr=0,01).
+
+| vrai | prédit |
+|---|---|
+| cylinder | cylinder |
+| fireball | fireball |
+| formation | formation |
+| light | light |
+| rectangle | rectangle |
+| cross | cross |
+| sphere | sphere |
+| egg | egg |
+
+![Perte sur les 8 relevés](figures/phase2_perte.png)
+
+Convergence si rapide parce que le vocabulaire est minuscule (construit
+sur ces 8 phrases seules, pas sur les 7 281 mots du vrai vocabulaire
+d'entraînement) : presque chaque mot n'apparaît que dans une seule des 8
+phrases, ce qui rend la mémorisation quasi triviale par recherche de mot
+unique.
+
+**Ce que ce test prouve :** la plomberie fonctionne — l'embedding, la
+convolution, la retropropagation et l'optimiseur peuvent effectivement
+faire baisser la perte à zéro erreur sur cette architecture.
+**Ce qu'il ne prouve absolument pas :** que le modèle généralisera sur
+73 177 relevés avec un vocabulaire de 7 281 mots partagés entre 19
+classes, où la mémorisation par mot unique ne marche plus.
