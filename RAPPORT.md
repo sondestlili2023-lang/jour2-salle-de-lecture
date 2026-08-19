@@ -957,3 +957,89 @@ couleur va avec quel objet, comme décrit au tableau) ; non entraînées,
 on ne peut conclure qu'une chose : le mécanisme est capable de porter
 deux regards différents sur la même phrase, pas encore qu'il choisit
 lesquels.
+
+## Acte 4 : emprunter un cerveau terrien
+
+### Phase 14 : le cerveau emprunté, et sa facture
+
+**Modèle emprunté : `distilbert-base-uncased`** (66,4M paramètres,
+récupéré librement sur Hugging Face). Choix qui porte déjà la tension de
+l'acte : DistilBERT est lui-même une version volontairement compressée
+de BERT — je n'ai pas pris "le plus gros cerveau possible", j'ai pris le
+plus gros qui *tienne* sur une machine sans accélérateur dans le temps
+d'une session.
+
+**Protocole commun aux trois régimes** : même tâche que la phase 8
+(`comments` filtrés → forme, vocabulaire interdit), même découpe, mêmes
+19 classes. Entraînement sur un **sous-échantillon de 4 000 relevés**
+(budget CPU — 51 223 relevés complets auraient représenté plusieurs
+heures par régime), mais **évaluation sur le jeu de test complet**
+(10 977 relevés, identique à la phase 8, un forward seul étant peu
+coûteux) pour une comparaison honnête à la référence. Chaque régime
+tourne dans son propre sous-processus, pour une mesure de mémoire pic
+qui ne soit pas polluée par les régimes précédents.
+
+**Référence (phase 8, notre réseau, vocabulaire interdit, 51 223
+relevés d'entraînement) : accuracy test 0,3507, macro-F1 0,1327.**
+
+| Régime | Params entraînés | Checkpoint | ms/pas | Durée totale | Pic RAM | Accuracy test | Macro-F1 test |
+|---|---|---|---|---|---|---|---|
+| 1. Sonde gelée | 14 611 | 59 Ko | 98 | 87 s | 1 022 Mo | 0,2677 | 0,0533 |
+| 2. Fine-tuning partiel | 66 377 491 | 253 Mo | 410 | 324 s | 2 305 Mo | 0,3130 | **0,1556** |
+| 3. LoRA (rang 8) | 162 067 | 642 Ko | 188 | 155 s | 1 205 Mo | **0,3147** | 0,0898 |
+
+**Régime 1 — sonde gelée.** Tout DistilBERT est figé
+(`requires_grad=False`) ; seule une couche linéaire sur le jeton `[CLS]`
+s'entraîne (14 611 paramètres). C'est le moins cher des trois, et le
+seul qui **perd nettement contre notre propre réseau** entraîné depuis
+zéro sur 51 223 relevés — un cerveau emprunté qui ne peut pas bouger et
+qui n'a vu que 4 000 exemples de la tâche ne suffit pas à rattraper un
+réseau plus petit mais entraîné sur toute la transmission.
+
+**Régime 2 — fine-tuning partiel, à vitesses différentes.** Tout
+DistilBERT est autorisé à bouger, mais avec un **taux d'apprentissage
+qui croît avec la profondeur** : `lr = lr_base × (0,2 + 1,8 × profondeur)`,
+où profondeur va de 1/6 (première couche transformeur, proche de
+l'entrée) à 1 (dernière couche, proche de la sortie) ; l'embedding
+lui-même reçoit `lr_base × 0,2`, le plus bas de tous. Justification : les
+couches proches de l'entrée codent des régularités générales de
+l'anglais (déjà utiles telles quelles), les couches proches de la sortie
+doivent se spécialiser sur la tâche précise — les bouger à la même
+vitesse risquerait d'effacer les premières pour un gain marginal sur les
+secondes. Résultat : **la meilleure macro-F1 des trois régimes (0,1556),
+au-dessus même de la référence phase 8 (0,1327)**, malgré 8 fois moins
+de données d'entraînement — mais au prix fort : 66,4 millions de
+paramètres à sauvegarder (253 Mo), le double du temps du régime 1, et le
+pic de mémoire le plus élevé.
+
+**Régime 3 — adaptateurs LoRA, DistilBERT intact.** Toutes les valeurs
+de DistilBERT restent gelées et **ne sont jamais modifiées** ; seules
+deux petites matrices de rang 8 (`A`: dim×8, `B`: 8×dim) sont glissées à
+côté de chaque projection *query* et *value*, dans les 6 couches
+transformeur (`CoucheLoRA` dans `phase14.py`) :
+`sortie = lineaire_gelee(x) + (16/8) × (x @ A @ B)`. Seules ces matrices
+et la tête de classification s'entraînent (162 067 paramètres, 400 fois
+moins que le régime 2). Résultat : **la meilleure accuracy des trois
+(0,3147, devant même le régime 2)**, un checkpoint 400 fois plus petit
+(642 Ko contre 253 Mo), et 2 fois moins de temps que le fine-tuning
+complet — mais une macro-F1 nettement plus faible (0,0898, proche de la
+sonde gelée) : le rang 8 sur seulement deux projections par couche
+suffit à déplacer la décision majoritaire (bonne accuracy globale) mais
+pas à redonner du signal aux classes rares une par une, ce que le
+fine-tuning complet, en pouvant reformer l'ensemble du réseau, réussit
+mieux.
+
+**Ce que le Bureau peut se payer, et pourquoi :** aucun des trois
+régimes n'est strictement dominant, et c'est le point. La sonde gelée
+est écartée d'office (elle perd contre notre propre réseau, moins cher à
+entraîner de zéro). Entre les deux autres, le choix dépend de ce que le
+Bureau paie réellement : **LoRA pour l'usage courant** — un checkpoint
+de 642 Ko se copie et se déploie en un instant sur "des machines de
+récupération, sans accélérateur", et l'accuracy globale tient la
+comparaison ; **le fine-tuning partiel seulement si les classes rares
+comptent plus que le stockage** — c'est le seul régime qui batte la
+référence sur la macro-F1, or c'est précisément la métrique dont la
+phase 8 a montré qu'elle est la seule à dire la vérité sur les formes
+peu fréquentes. Le Bureau qui a supprimé le vocabulaire des formes pour
+de bonnes raisons ne peut pas se permettre de perdre `diamond` et
+`chevron` une deuxième fois pour économiser 253 Mo de disque.
