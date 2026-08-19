@@ -84,3 +84,91 @@ attire l'attention, seulement le plus frequent des jours qui le font.
 `python3 phase0.py` (apres `pip install -r requirements.txt`) telecharge
 la transmission si absente et affiche tous les chiffres ci-dessus, sur
 une machine neuve, en quelques secondes.
+
+## Phase 1 : le chiffre était vrai, la flotte est perdue
+
+### 1. Ce que le chiffre du 4 juillet disait réellement
+
+Le chiffre de la phase 0 dit une seule chose, rigoureusement : ce jour-là,
+en moyenne, environ 51 personnes ont rempli le formulaire de témoignage,
+contre 9,2 un jour ordinaire. Il ne dit rien sur *pourquoi*. Le dossier a
+choisi une explication parmi plusieurs qui restent tout aussi compatibles
+avec le même nombre :
+
+- **Exposition, pas indifférence.** Le 4 juillet est un soir où une part
+  inhabituellement grande de la population est dehors, dans le noir, en
+  train de regarder le ciel — pour les feux d'artifice. Plus de témoins
+  potentiels dehors et en train de regarder en l'air, ça fait plus de
+  relevés, sans que personne soit devenu moins vigilant. C'est même
+  l'inverse de l'hypothèse du dossier : ces gens-là regardaient le ciel
+  activement, pas distraitement.
+- **Confusion avec un phénomène humain connu.** Les feux d'artifice, les
+  lanternes, les drones de spectacle produisent des lumières mobiles,
+  colorées, qui se prêtent bien à une description de type "orbe",
+  "cercle" ou "lumière qui change de couleur". Sur les relevés du 4
+  juillet, 9,9 % (126 sur 1 272) mentionnent explicitement le mot
+  *fireworks* dans leur propre texte — un mot qui n'existe nulle part
+  dans le vocabulaire de la colonne `shape`, et qu'aucun comptage sur les
+  dates n'aurait pu voir. Le pic du 4 juillet peut être, au moins en
+  partie, un pic de confusion avec un spectacle pyrotechnique attendu,
+  pas un pic de vigilance en berne.
+- **Contagion locale.** Un rassemblement public (une plage, un quai, un
+  parking bondé un soir de feu d'artifice) fait qu'un seul événement
+  ambigu dans le ciel peut être signalé par plusieurs témoins présents
+  au même endroit au même moment, gonflant le compte sans multiplier les
+  événements réels.
+
+Aucune de ces trois lectures ne soutient "la population ne prêtera pas
+attention" — le chiffre du dossier dit plutôt le contraire : ce soir-là,
+plus de gens que jamais regardent le ciel, activement, en groupe, et sont
+déjà en train de chercher des explications à ce qu'ils y voient.
+
+### 2. Trois relevés, tels quels
+
+```
+[7/4/1995 22:00 -- tacoma (waterfront area), wa, us -- shape: circle]
+MANY PEOPLE ON DOCK WAITING FOR FIREWORKS DISPLAY SEE A RED CIRCLE
+HOVERING AND THEN MOVE SLOWLY WEST.
+```
+Un comptage voit "+1 relevé, un 4 juillet". Le texte dit qu'il s'agit
+d'une foule déjà réunie, déjà tournée vers le ciel pour une raison précise
+et documentée (le feu d'artifice) — l'exact opposé d'un public inattentif.
+
+```
+[9/9/1972 21:00 -- ??, ca -- shape: rectangle]
+It was well over 20 years ago, but I will never forget how unusual it
+seemed to me. I still don't know just WHAT it was, maybe you can
+```
+La phrase s'arrête net sur "maybe you can" : la troncature à 135
+caractères du service de transmission a coupé le témoignage en plein
+milieu. Un comptage ne remarque jamais qu'il travaille sur des phrases
+tronquées ; il traite ce relevé exactement comme un relevé complet.
+
+```
+[12/17/1996 02:30 -- redmond, wa, us -- shape: (vide)]
+Woman awakened by high-pitch buzzing.  Goes outside and sees large, very
+bright, circular disc w/ flat top hovering nearby. Frightened.
+```
+La colonne `shape` est vide pour ce relevé — un comptage sur cette
+colonne perd purement et simplement ce témoignage. Le texte, lui, décrit
+sans ambiguïté un disque circulaire à sommet plat. L'information existe,
+mais seulement pour qui lit le texte.
+
+### 3. La commande passée au Conseil
+
+Un comptage peut dire *quand* les témoins écrivent. Il ne peut jamais
+dire *ce qu'ils ont vu* quand la colonne structurée qui devrait le dire
+est vide, fausse, ou absente. C'est la question qu'un système qui lit les
+témoignages peut trancher et qu'un comptage ne tranchera jamais :
+
+**Tâche : reconnaissance de forme à partir du témoignage.**
+**Entrée :** le texte libre de la colonne `comments` d'un relevé (tronqué
+à 135 caractères, tel que transmis).
+**Sortie :** une forme unique, choisie parmi le vocabulaire de la colonne
+`shape` (circle, light, triangle, sphere, ...).
+
+Le fichier porte déjà, pour la quasi-totalité des relevés, la vraie forme
+observée dans la colonne `shape` elle-même : elle sert de vérité terrain
+pour vérifier les réponses du système, exactement comme au relevé
+[12/17/1996 02:30] ci-dessus où le texte contient la réponse que la
+colonne structurée a perdue.
