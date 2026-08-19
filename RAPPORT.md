@@ -296,3 +296,75 @@ d'entraînement → identifiant 1 (`<unk>`). Le premier mot du vocabulaire,
 `hoax`, devient un vecteur de 100 nombres (`embed.weight[3016]`) : c'est
 le premier nombre qui entre réellement dans le réseau, tout le reste
 (convolution, pooling, linéaire) ne fait que le transformer.
+
+### Phase 4 : le carnet de pannes
+
+Même montage que la phase 3 (`ModeleConv`), même découpe, cassé
+volontairement trois fois, une fois à chaque fois à partir d'un modèle
+neuf (même graine). Référence saine pour comparaison : perte train
+2,04 → 1,55, perte val 1,69 → 1,57 sur 5 époques.
+
+**Fiche 1 — évaluation faite sans `modele.eval()`**
+- *Geste* : après l'entraînement de l'époque, évaluer directement sans
+  remettre le modèle en mode évaluation. Dropout (0,4) reste actif et la
+  batchnorm continue à se caler sur les statistiques du lot en cours
+  (ici des lots de 4, pour que l'effet ne se noie pas dans la moyenne
+  d'un unique bloc de 10 977 exemples).
+- *Signature* : la perte de validation "correcte" (`model.eval()`)
+  descend de 1,69 à 1,58 ; la même donnée, évaluée en mode train, reste
+  systématiquement 10 à 15 % plus haute à chaque époque (1,89 → 1,69).
+  Rien n'a changé dans les données entre les deux courbes — seul le mode
+  du modèle diffère.
+  ![Panne 1](figures/phase4_panne1.png)
+- *Test en moins d'une minute* : repasser deux fois de suite exactement
+  la même entrée dans le modèle sans le retoucher. En mode `eval()`, les
+  deux sorties sont rigoureusement identiques (déterministe). En mode
+  `train()`, elles diffèrent (`torch.allclose` renvoie `False`) : la
+  seule explication possible pour deux sorties différentes sur une
+  entrée identique est un mécanisme stochastique encore actif — dropout,
+  donc `model.eval()` n'a pas été appelé.
+
+**Fiche 2 — dictionnaire de décodage incohérent avec l'entraînement**
+- *Geste* : entraîner et calculer la perte normalement (indices
+  cohérents de bout en bout), mais décoder les indices prédits en noms
+  de forme avec un dictionnaire reconstruit dans un autre ordre (classes
+  triées par fréquence décroissante au lieu de l'ordre alphabétique
+  utilisé à l'entraînement) — le classique du label-encoder régénéré
+  entre deux versions du code sans être resynchronisé.
+- *Signature* : la perte d'entraînement baisse proprement (2,04 → 1,55)
+  et l'accuracy calculée sur les indices bruts monte normalement
+  (0,51 → 0,54). L'accuracy calculée en décodant les noms avec le
+  mauvais dictionnaire reste plate autour de 0,02 — sous la référence
+  "au hasard" (1/19 ≈ 0,053), puisqu'une permutation fixe n'a presque
+  aucun point fixe.
+  ![Panne 2](figures/phase4_panne2.png)
+- *Test en moins d'une minute* : comparer, sur le même lot, l'accuracy
+  indice-contre-indice à l'accuracy nom-contre-nom. Si la première est
+  correcte et haute pendant que la seconde reste proche de zéro tout au
+  long de l'entraînement (au lieu de démarrer bas puis de progresser
+  comme dans la panne 1), c'est un problème de décodage, pas
+  d'apprentissage : le modèle prédit juste, on le lit mal.
+
+**Fiche 3 — `optim.step()` jamais appelé**
+- *Geste* : calculer `perte.backward()` à chaque lot mais oublier
+  `optim.step()`. Les gradients sont bien calculés, mais aucune valeur
+  du modèle ne bouge jamais.
+- *Signature* : la perte reste figée autour de 4,0 sur les 5 époques
+  (4,001 / 4,000 / 4,007 / 3,998 / 3,992), sans tendance, seulement le
+  bruit de dropout/batchnorm d'un lot à l'autre — comparée à la
+  référence saine qui descend franchement de 2,04 à 1,55.
+  ![Panne 3](figures/phase4_panne3.png)
+- *Test en moins d'une minute* : comparer un tenseur de poids (ici la
+  couche de sortie) avant et après l'entraînement avec
+  `torch.equal(...)`. `True` = aucune mise à jour n'a jamais eu lieu,
+  donc soit `optim.step()` n'est jamais appelé, soit le taux
+  d'apprentissage est nul — dans les deux cas, pas la même famille de
+  panne que 1 ou 2, où les poids bougent bel et bien.
+
+**Ce que le carnet permet de trancher rapidement, face à une courbe
+inconnue :** perte d'entraînement qui descend + perte d'évaluation qui
+descend un peu moins vite mais dans le même sens → suspecter la panne 1
+(mode du modèle) ; perte d'entraînement qui descend mais qu'aucune
+métrique côté "vrai monde" (noms, pas indices) ne suit → panne 2
+(décodage) ; perte qui ne bouge absolument pas d'un bout à l'autre →
+panne 3 (aucune mise à jour des poids).
