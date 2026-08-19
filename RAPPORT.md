@@ -767,3 +767,45 @@ probablement jamais dû suffire à distinguer 19 classes ; les deux
 probabilités les plus hautes ne totalisent que 40 % à elles deux — le
 modèle "sait" qu'il ne sait pas, ce qui est le comportement souhaitable
 face à un texte réellement insuffisant.
+
+## Acte 3 : le Bureau apprend à relire
+
+### Phase 10 : chaque mot interroge les autres
+
+Mécanisme d'attention codé entièrement à la main (`phase10.py`) : trois
+couches linéaires (question, étiquette, contenu), un produit matriciel
+pour les scores, un softmax, un second produit matriciel pour le
+mélange. Aucun bloc tout prêt, rien qui porte "attention" dans son nom.
+
+**Relevé de départ** — un vrai relevé du fichier (indice 86260, forme
+`disk`), choisi pour sa reprise sans ambiguïté :
+```
+"1 mother ship with her smaller ones"
+→ tokenisé : ['mother', 'ship', 'with', 'her', 'smaller', 'ones']
+```
+`her` reprend `ship` (mother ship) — un cas d'école de pronom-antécédent,
+et le genre grammatical anglais des navires (*a ship, she/her*) le rend
+sans équivoque.
+
+Vecteurs d'entrée (embedding non entraîné, dimension 16) → question,
+étiquette et contenu par mot (une couche linéaire chacune, dimension 16
+également, pour que la sortie ait exactement la forme de l'entrée) →
+`scores = questions @ etiquettes.T / sqrt(16)` → `poids = softmax(scores)`
+→ `sortie = poids @ contenus`.
+
+![Matrice d'attention (non entraînée)](figures/phase10_attention.png)
+
+**Les trois vérifications demandées :**
+1. **Chaque ligne somme à 1** — vérifié pour les 6 mots (`1.000000`
+   partout, calculé par le code, pas arrondi à l'œil).
+2. **La sortie a la même forme que l'entrée** — `(6, 16)` des deux
+   côtés.
+3. **La case du pronom** — `her` est en ligne 3 ; sa case la plus sombre
+   est en colonne 4, `smaller`, avec un poids de 0,91. Ce n'est pas
+   `ship` (colonne 1), qui n'obtient que 0,00 sur la ligne `her` : le
+   modèle n'est pas entraîné, ses poids Q/K/V sont un bruit gaussien
+   sans aucun lien avec le sens des mots, donc cette valeur n'a aucune
+   raison d'être "juste" — c'est attendu, pas un bug. Ce que la phase
+   demande, c'est de savoir désigner la case (ligne `her`, colonne du
+   mot le plus sombre), pas d'obtenir la bonne réponse : ça, c'est la
+   phase 11.
