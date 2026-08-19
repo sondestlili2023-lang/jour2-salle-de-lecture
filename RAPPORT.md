@@ -861,3 +861,54 @@ partiellement sur lui-même). Aucune de ces deux matrices n'est plus
 position sont toujours du bruit gaussien non entraîné ; ce qui a changé,
 c'est uniquement que le calcul *peut* désormais distinguer un ordre d'un
 autre, pas qu'il le fasse de façon sensée.
+
+### Phase 12 : le Conseil demande la facture
+
+Chronométrage de la tête d'attention de la phase 11, **code inchangé**,
+sur des séquences synthétiques (le contenu n'importe pas pour une mesure
+de coût) de 32 à 512 jetons. Temps médian sur 30 passages, après 5
+passages d'échauffement écartés :
+
+| Longueur | Temps médian | Cases de la matrice |
+|---|---|---|
+| 32 | 0,065 ms | 1 024 |
+| 64 | 0,069 ms | 4 096 |
+| 128 | 0,082 ms | 16 384 |
+| 256 | 0,115 ms | 65 536 |
+| 512 | 0,407 ms | 262 144 |
+
+![Coût de l'attention en fonction de la longueur](figures/phase12_facture.png)
+
+**Facteur d'une longueur à la longueur double, et pourquoi :**
+
+| Doublement | Facteur temps | Facteur cases |
+|---|---|---|
+| 32 → 64 | x1,05 | x4,00 |
+| 64 → 128 | x1,18 | x4,00 |
+| 128 → 256 | x1,41 | x4,00 |
+| 256 → 512 | x3,54 | x4,00 |
+
+Le nombre de cases de la matrice (donc le nombre de comparaisons
+question/étiquette, `questions @ etiquettes.T`) quadruple à chaque
+doublement, exactement — c'est un calcul en O(longueur²), pas une
+mesure. Le temps, lui, ne suit ce facteur 4 qu'à partir de 256→512
+(x3,54, proche de 4) ; aux longueurs plus courtes, le coût fixe d'un
+appel PyTorch (répartition des opérations, allocation mémoire) domine
+largement le calcul lui-même, qui est trop petit pour que la loi en
+carré se voie — le facteur x1,05 entre 32 et 64 ne veut pas dire que
+l'attention est "gratuite" à ces tailles, seulement que ce n'est pas
+elle qui coûte cher.
+
+**À quelle longueur ce montage devient-il inutilisable ?** Extrapolation
+en L² depuis les deux mesures les plus fiables (256/512, les moins
+polluées par le coût fixe), pas une intuition :
+- ~8 000 jetons pour atteindre 100 ms (un délai qu'un humain perçoit)
+- ~25 000 jetons pour atteindre 1 seconde d'attente
+
+Le relevé le plus long de toute la transmission ne fait que 35 jetons
+(mesuré en phase 6). Ce montage, seul, **ne sera jamais le goulot
+d'étranglement pour un relevé unique** — même le pire cas réel du
+fichier est 700 fois plus court que le seuil des 100 ms. Le risque
+n'existe que si on lui fait un jour lire plusieurs centaines de relevés
+d'un coup dans le même passage — exactement la contrainte de budget de
+texte que l'acte 4 (phase 15) va imposer.
