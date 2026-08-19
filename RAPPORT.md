@@ -912,3 +912,48 @@ fichier est 700 fois plus court que le seuil des 100 ms. Le risque
 n'existe que si on lui fait un jour lire plusieurs centaines de relevés
 d'un coup dans le même passage — exactement la contrainte de budget de
 texte que l'acte 4 (phase 15) va imposer.
+
+### Phase 13 : deux regards sur le même relevé
+
+Deux têtes (`phase10.UneTeteAttention`, mécanisme inchangé), poids Q/K/V
+initialisés différemment, tournées sur la même entrée (même relevé, même
+position — phase 11). Sorties recollées par concaténation puis une
+couche linéaire de projection (`(6,32) → (6,16)`, la forme de l'entrée).
+
+**Mesure de désaccord choisie : distance de variation totale (TV),
+moyennée sur les 6 lignes.** Pour chaque mot qui interroge, c'est la
+moitié de la masse de probabilité qu'il faudrait déplacer pour
+transformer la distribution d'attention de la tête 1 en celle de la
+tête 2 — bornée entre 0 (distributions identiques) et 1 (aucun
+recouvrement), donc directement lisible sans repère supplémentaire.
+
+| | Désaccord TV |
+|---|---|
+| Tête 1 vs Tête 2 (poids réellement différents) | **0,485** |
+| **Cas de contrôle** (deux têtes initialisées à l'identique) | **0,000000** |
+
+![Deux têtes, même relevé](figures/phase13_deux_tetes.png)
+
+Le contrôle vaut exactement zéro : même poids, même entrée, mêmes
+sorties, aucune surprise — c'est ce qui donne un sens au 0,485 mesuré
+entre les deux vraies têtes (une division par un contrôle nul n'aurait
+rien voulu dire, donc pas de "facteur" ici, juste la comparaison brute).
+Visuellement, les deux matrices ne se ressemblent sur aucune ligne :
+`ship` regarde `ones` à 1,00 pour la tête 1 contre `smaller` à 0,60 pour
+la tête 2 ; `her` privilégie `mother` dans les deux (0,62 et 0,30) mais
+avec un deuxième choix complètement différent (`ones` à 0,23 contre
+`smaller` à 0,68).
+
+**Ce que ça prouve, et ce que ça ne prouve pas.** Les deux têtes ne sont
+pas entraînées : leurs différences viennent uniquement de leur
+initialisation aléatoire, pas d'un quelconque apprentissage de deux
+relations distinctes. Ce résultat démontre la *mécanique* — des têtes
+différemment initialisées produisent des matrices différentes, le
+multi-tête a un effet réel et mesurable — mais ne démontre aucune
+spécialisation sémantique. Entraînées, un désaccord de cette ampleur
+permettrait de conclure que les deux têtes se sont réparti des pistes
+différentes (par exemple l'une suivant qui-fait-quoi, l'autre quelle
+couleur va avec quel objet, comme décrit au tableau) ; non entraînées,
+on ne peut conclure qu'une chose : le mécanisme est capable de porter
+deux regards différents sur la même phrase, pas encore qu'il choisit
+lesquels.
