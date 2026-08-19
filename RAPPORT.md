@@ -368,3 +368,71 @@ descend un peu moins vite mais dans le même sens → suspecter la panne 1
 métrique côté "vrai monde" (noms, pas indices) ne suit → panne 2
 (décodage) ; perte qui ne bouge absolument pas d'un bout à l'autre →
 panne 3 (aucune mise à jour des poids).
+
+### Phase 5 : le budget de calcul
+
+Même montage, même découpe, mêmes 19 classes que la phase 3. Chaque
+réglage est mesuré seul, contre exactement la même base de départ
+(lot=64, tokenisation à la volée, lr=1e-3, 8 époques) — jamais deux à la
+fois :
+
+| Réglage isolé | Durée (8 époques) | Facteur temps | val_acc finale |
+|---|---|---|---|
+| Base (= phase 3) | 31,4 s | x1,00 | 0,5461 |
+| A — séquences précalculées une fois | 26,6 s | **x1,18** | 0,5461 (identique) |
+| B — lot de 256 au lieu de 64 | 22,4 s | **x1,40** | 0,5409 (−0,005) |
+| C — lr=3e-3 seul (lot inchangé) | 32,4 s | x0,97 (aucun gain) | 0,5328 (−0,013) |
+
+Lecture réglage par réglage :
+- **A ne coûte rien** : précalculer les séquences une seule fois au lieu
+  de les retokeniser à chaque accès (`JeuFormesPrecalcule` dans
+  `phase5.py`) fait gagner 18 % de temps sans toucher au score — c'était
+  du travail répété pour rien.
+- **B est le plus gros gain de temps (+40 %) mais coûte du score** en le
+  gardant seul : moins de mises à jour par époque (200 pas contre 800)
+  avec le même taux d'apprentissage sous-entraîne le modèle.
+- **C seul ne sert à rien** : monter le taux d'apprentissage sans changer
+  la taille de lot ne fait pas gagner de temps (même nombre de pas) et
+  dégrade nettement le score — la preuve que B et C doivent être mesurés
+  isolément avant d'être combinés : combiner B (qui a besoin d'un taux
+  d'apprentissage plus élevé pour compenser ses pas moins nombreux) avec
+  un C mal calibré pour lui seul aurait été une fausse piste.
+
+**Recette retenue : A + B + un taux d'apprentissage réglé pour B (2,5e-3,
+affiné après coup — le 3e-3 testé isolément pour C s'est révélé trop
+agressif même combiné à B).** Comparée à la même base, avec arrêt
+anticipé (meilleure époque sur validation) sur les deux :
+
+| | Temps jusqu'au meilleur score | Accuracy test |
+|---|---|---|
+| Base (reproduction phase 3) | 32,6 s | 0,5474 |
+| **Recette (phase 5)** | **23,4 s** | **0,5499** |
+| *Référence phase 3 (RAPPORT.md, section précédente)* | *45,1 s* | *0,5502* |
+
+**Facteur : x1,39** (32,6 s → 23,4 s, mesurés sur la même machine, même
+protocole, l'un après l'autre).
+
+![Temps écoulé, pas nombre d'époques](figures/phase5_temps.png)
+
+Le score final (0,5499) est à 0,0003 du chiffre annoncé en phase 3
+(0,5502) — trois relevés sur 10 977, un écart plus petit que celui qui
+sépare deux relances de la même configuration (la reproduction "base" de
+cette page tombe elle-même à 0,5474 quand la phase 3 avait obtenu 0,5514
+en validation, seule la séquence exacte de tirages aléatoires ayant
+changé entre les deux fichiers). Ce n'est pas une coïncidence : la
+transmission et l'énoncé le disent plus loin dans ce même document
+(section "Pourquoi deux entraînements identiques ne donnent pas le même
+résultat") — un écart de cette taille n'est pas un résultat, et je ne
+le maquille pas en relançant la recette jusqu'à tomber sur un chiffre
+plus flatteur.
+
+**Pourquoi aller trop vite finit par coûter plus cher que d'aller
+lentement :** le réglage B seul (le plus rapide en isolation, x1,40)
+perd 0,005 de score, et C seul (aucun gain de temps) en perd 0,013.
+Prises séparément, ni l'une ni l'autre n'est directement réutilisable :
+B a besoin d'un taux d'apprentissage plus élevé pour compenser ses pas
+moins nombreux, et c'est justement la mesure isolée de C (3e-3 seul, un
+échec net) qui a évité de choisir ce taux au hasard dans la recette
+combinée — 2,5e-3 a été retenu après coup précisément parce que 3e-3
+s'était montré trop agressif pour ce jeu de données, même une fois B en
+place.
