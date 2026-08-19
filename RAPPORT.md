@@ -515,3 +515,74 @@ l'ordre et les dépendances à longue distance comptent plus. Le montage
 "s'entraîne encore" (consigne de validation) : la perte baisse
 proprement dans les deux cas, avec et sans résidus, seul l'écart final
 diffère.
+
+### Phase 7 : quatre relevés à la fois
+
+Le montage de la phase 6 (`ModeleTCN`, avec résidus) relancé à 4 relevés
+par lot au lieu de 64, sans rien changer d'autre. Chaque `BlocDilate`
+contient une `BatchNorm1d`, dont les statistiques (moyenne/variance) sont
+calculées sur le lot en cours — avec 64 exemples c'est une bonne
+estimation de la population des relevés, avec 4 c'est bien moins
+fiable, et chaque exemple se retrouve normalisé en fonction de qui
+d'autre est tombé dans son lot : une dépendance qui n'aurait jamais dû
+exister entre relevés qui n'ont rien à voir les uns avec les autres.
+
+*Démonstration sur un sous-échantillon de 8 000 relevés d'entraînement
+(5 époques) : à lot=4 sur les 51 223 relevés complets, ~12 800 pas par
+époque rendent la démonstration injouable en session interactive — le
+phénomène observé (stable ou non selon la normalisation) ne dépend pas
+de la taille du jeu, seul le nombre de pas en dépend.*
+
+| Montage (lot=4) | val_acc | test_acc |
+|---|---|---|
+| BatchNorm (montage de la phase 6 tel quel) | 0,5126 | — |
+| **GroupNorm (normalisation par exemple)** | **0,5210** | **0,5239** |
+
+![Lot de 4 -- avant/après correction](figures/phase7_lot4.png)
+
+**Résultat plus nuancé qu'attendu, à dire honnêtement** : la perte
+d'entraînement ne s'effondre pas et ne devient pas erratique avec
+BatchNorm à lot=4 (elle descend proprement de 2,79 à 1,61) — parce que
+`BatchNorm1d` sur un tenseur (lot, canaux, longueur) calcule ses
+statistiques sur lot × longueur valeurs par canal, pas sur le lot seul :
+avec des relevés de 13 mots en médiane, 4 relevés fournissent encore
+~52 valeurs par canal, ce qui amortit une partie du bruit. L'écart reste
+réel et mesurable (−0,008 en validation, cohérent sur les 5 couches
+empilées) mais n'est pas la catastrophe qu'on pourrait imaginer — une
+nuance qui vaut la peine d'être écrite plutôt que maquillée en échec
+spectaculaire.
+
+**La correction ne coûte rien quand la machine va bien** (même
+sous-échantillon, lot=64, 5 époques) :
+
+| Montage (lot=64) | val_acc | test_acc |
+|---|---|---|
+| BatchNorm | 0,5043 | 0,5053 |
+| GroupNorm | 0,5072 | 0,5112 |
+
+GroupNorm n'est pas seulement sans danger à lot=64 sur ce sous-jeu, il
+est légèrement meilleur — la correction peut rester en place en
+permanence, elle n'a pas besoin d'être un cas spécial pour les lots
+petits.
+
+**Ce qui, dans l'ancien montage, dépendait des autres relevés du lot et
+n'aurait jamais dû en dépendre :** la normalisation de chaque relevé
+(sa moyenne et sa variance de canal) dépendait des 3 autres relevés
+tirés au hasard dans le même lot — deux passages du même relevé dans
+deux lots différents pouvaient produire des activations légèrement
+différentes, uniquement à cause de la compagnie.
+
+**Et pour prédire sur un seul relevé, un jour ?** Testé directement (pas
+supposé) : en mode `eval()` (l'usage normal à l'inférence), l'ancien
+montage BatchNorm ne plante jamais, quelle que soit la longueur du
+relevé — il utilise ses statistiques figées, pas celles du lot courant,
+ce n'est donc pas le même problème que l'entraînement à lot=4. Mais en
+mode `train()` (si ce montage devait un jour continuer à s'entraîner
+relevé par relevé), le résultat dépend d'un détail auquel on ne pense
+pas : un relevé de 10 jetons passe sans erreur (10 valeurs par canal
+suffisent à calculer une variance), un relevé d'1 seul jeton plante net
+(`ValueError: Expected more than 1 value per channel when training`).
+C'est un bug latent et intermittent — masqué par la longueur du texte la
+plupart du temps, qui n'explose que sur le cas dégénéré d'un témoignage
+d'un seul mot — plus dangereux qu'un plantage systématique, parce que
+personne ne le voit venir en testant sur des exemples "normaux".
