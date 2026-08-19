@@ -28,12 +28,15 @@ class ModeleConv(nn.Module):
     `noyau` mots), ce qu'un comptage ne voit jamais.
     """
 
-    def __init__(self, taille_vocab, n_classes, dim_embed=64, dim_cachee=128, noyau=3):
+    def __init__(self, taille_vocab, n_classes, dim_embed=100, dim_cachee=128, noyau=3, dropout=0.4):
         super().__init__()
         self.embed = nn.Embedding(taille_vocab, dim_embed, padding_idx=0)
         self.conv = nn.Conv1d(dim_embed, dim_cachee, kernel_size=noyau, padding=noyau // 2)
         self.norme = nn.BatchNorm1d(dim_cachee)
-        self.sortie = nn.Linear(dim_cachee, n_classes)
+        self.dropout = nn.Dropout(dropout)
+        # max-pool ET moyenne-pool concatenes : le max retient le mot le plus
+        # saillant, la moyenne retient le ton general de la phrase.
+        self.sortie = nn.Linear(dim_cachee * 2, n_classes)
 
     def forward(self, sequences):
         x = self.embed(sequences)  # (batch, longueur, dim_embed)
@@ -41,5 +44,8 @@ class ModeleConv(nn.Module):
         x = self.conv(x)  # (batch, dim_cachee, longueur)
         x = self.norme(x)
         x = torch.relu(x)
-        x, _ = x.max(dim=2)  # max-pool global sur la longueur -> (batch, dim_cachee)
+        x_max, _ = x.max(dim=2)
+        x_moy = x.mean(dim=2)
+        x = torch.cat([x_max, x_moy], dim=1)
+        x = self.dropout(x)
         return self.sortie(x)
