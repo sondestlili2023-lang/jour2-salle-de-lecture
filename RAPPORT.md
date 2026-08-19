@@ -695,3 +695,75 @@ qui n'a presque pas bougé. Deux façons de résumer le même modèle
 racontent donc deux histoires opposées : "le score global tient à peu
 près" contre "la moitié des formes rares ne sont plus jamais reconnues"
 — et c'est la seconde qui décrit fidèlement ce qui s'est passé.
+
+### Phase 9 : rendre des comptes sur trois décisions
+
+Modèle de la phase 8 (vocabulaire interdit), trois relevés du jeu de
+test, expliqués par **occlusion mot par mot** : chaque mot est retiré un
+par un (remplacé par `<unk>`), et on mesure de combien la confiance dans
+la classe prédite chute. Un mot dont le retrait fait **chuter** la
+confiance (vert) a été utilisé comme preuve ; un mot dont le retrait la
+fait **monter** (rouge) brouillait la décision. Méthode choisie pour sa
+lisibilité sans code : "on a caché ce mot, voici ce que ça change" se
+comprend sans savoir ce qu'est un poids.
+
+**1. Un relevé réussi**
+```
+vrai = disk   →   prédit = disk (confiance 98,9 %)
+"silver saucer seen also heard alien type noises"
+```
+![Relevé réussi](figures/phase9_reussi.png)
+
+*Ce que la machine a manifestement retenu :* un seul mot, `saucer`,
+porte à lui seul 0,498 des 0,989 de confiance finale — près de la
+moitié de toute la décision vient d'un seul mot. *Ce qu'elle a ignoré :*
+`alien` et `type`, qui à l'oreille humaine ajoutent de l'ambiance mais
+ne décrivent aucune forme, sont à raison quasi ignorés (+0,001, −0,003)
+— la machine ne se laisse pas distraire par ce mot-là, contrairement à
+ce qu'on pourrait craindre. *Ce que ça apprend sur le jeu de données :*
+`saucer` n'est pas dans la liste des 56 mots interdits (ce n'est pas une
+valeur de `shape`), mais c'est un synonyme si dominant dans les
+témoignages de disques que le filtrage de la phase 8 ne l'a pas touché
+— la fuite de vocabulaire n'est peut-être pas complètement colmatée.
+
+**2. Un relevé raté**
+```
+vrai = chevron   →   prédit = triangle (confiance 95,7 %), chevron 2e (2,7 %)
+"large black silent v shape with red one one side and blue on other"
+```
+![Relevé raté](figures/phase9_rate.png)
+
+*Ce que la machine a manifestement retenu :* le mot `v` (comme dans "v
+shape") porte la plus forte importance (+0,083), suivi de `black`
+(+0,064) — elle a bien vu une forme anguleuse et pointue. *Ce qu'elle a
+ignoré alors qu'un humain l'aurait vu :* un humain lisant "v shape" avec
+un point de couleur de chaque côté reconnaît immédiatement un chevron
+(la forme est littéralement un V), pas un triangle plein — la machine
+n'a pas ce concept géométrique précis, elle associe "pointu et anguleux"
+à sa classe pointue la plus fréquente (`triangle`, 8 489 relevés) plutôt
+qu'à la bonne classe, plus rare (`chevron`, 1 007). *Ce que ça apprend
+sur le jeu de données plutôt que sur le modèle :* `chevron` est bien la
+2e réponse (2,7 %) — le signal existe, mais `chevron` et `triangle`
+décrivent tous deux des formes en V/pointe dans le langage courant des
+témoins ; la frontière entre ces deux classes est floue dans les
+définitions mêmes du jeu, pas seulement dans la tête du modèle.
+
+**3. Une hésitation entre deux formes proches**
+```
+vrai = oval   →   oval 19,8 % ≈ circle 19,8 % (écart : 0,014 point)
+"inverted objects in upstate new york"
+```
+![Hésitation](figures/phase9_hesitation.png)
+
+*Ce que la machine a manifestement retenu :* `objects` (+0,073) et
+`inverted` (+0,046) sont les deux mots qui poussent le plus vers `oval`
+— mais aucun des deux ne décrit une forme précise. *Ce qu'elle a ignoré
+alors qu'un humain l'aurait vu :* rien, justement — il n'y a rien à
+voir : un humain lisant ce texte ne saurait pas non plus trancher entre
+oval et circle, ni même être sûr qu'il s'agit de l'un ou l'autre.
+*Ce que ça apprend sur le jeu de données plutôt que sur le modèle :* ce
+relevé (6 mots, aucun indice de forme après filtrage) n'aurait
+probablement jamais dû suffire à distinguer 19 classes ; les deux
+probabilités les plus hautes ne totalisent que 40 % à elles deux — le
+modèle "sait" qu'il ne sait pas, ce qui est le comportement souhaitable
+face à un texte réellement insuffisant.
