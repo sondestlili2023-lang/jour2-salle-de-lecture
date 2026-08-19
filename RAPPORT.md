@@ -809,3 +809,55 @@ Vecteurs d'entrée (embedding non entraîné, dimension 16) → question,
    demande, c'est de savoir désigner la case (ligne `her`, colonne du
    mot le plus sombre), pas d'obtenir la bonne réponse : ça, c'est la
    phase 11.
+
+### Phase 11 : le Conseil mélange vos mots
+
+Même phrase, même table de mots, même tête d'attention (`phase10.py`,
+non modifiée — importée telle quelle). Les 6 mots sont mélangés au
+hasard : `['mother', 'ship', 'with', 'her', 'smaller', 'ones']` devient
+`['with', 'ones', 'her', 'mother', 'ship', 'smaller']`.
+
+**Le Conseil a raison — mesuré, pas supposé.** Pour chaque mot, la
+sortie de l'attention dans l'ordre correct et dans l'ordre mélangé (le
+même mot recherché par son identité, pas par sa position) :
+
+| Mot | Écart avant correction | Écart après correction |
+|---|---|---|
+| mother | 0,00000006 | 5,11 |
+| ship | 0,00000095 | 5,00 |
+| with | 0,00000024 | 4,53 |
+| her | 0,00000024 | 4,60 |
+| smaller | 0,00000048 | 2,90 |
+| ones | 0,00000048 | 4,50 |
+| **maximum** | **0,00000095** | **5,11** |
+
+Écart avant : indistinguable de zéro (bruit flottant, ~1e-6 — l'ordre
+des opérations en virgule flottante change légèrement le résultat, pas
+le sens du calcul). Écart après : jamais en dessous de 2,9, un facteur
+supérieur à 5 millions entre les deux mesures, avec exactement le même
+protocole des deux côtés.
+
+![Avant/après, même phrase](figures/phase11_avant_apres.png)
+
+**Où l'information manquante a été injectée, et pourquoi là :** un
+vecteur par position (`table_position`, un `nn.Embedding` de plus, aussi
+peu entraîné que le reste) est additionné au vecteur du mot *avant*
+qu'il n'entre dans la tête d'attention — pas à l'intérieur du mécanisme,
+qui reste texto celui de la phase 10. Il fallait l'injecter dans
+l'entrée, pas dans le calcul des scores ou du mélange : la tête
+d'attention ne fait que comparer et mélanger des vecteurs, elle n'a
+aucune notion de position à elle — la seule façon de la lui donner sans
+la modifier est de la coudre dans ce qu'elle reçoit en entrée. Une fois
+ce vecteur ajouté, le mot `smaller` à la position 4 et le mot `smaller`
+à une autre position n'entrent plus avec le même vecteur, donc ne posent
+plus la même question ni la même étiquette : le mécanisme, inchangé,
+devient sensible à l'ordre par construction.
+
+Les deux matrices affichées ci-dessus sont sur la phrase dans l'ordre
+correct, avant et après l'ajout de position : les poids changent
+nettement (`her` passe de 0,79 sur `mother` à 0,97, `with` se redistribue
+partiellement sur lui-même). Aucune de ces deux matrices n'est plus
+"juste" que l'autre pour autant — les poids Q/K/V et la table de
+position sont toujours du bruit gaussien non entraîné ; ce qui a changé,
+c'est uniquement que le calcul *peut* désormais distinguer un ordre d'un
+autre, pas qu'il le fasse de façon sensée.
