@@ -586,3 +586,112 @@ C'est un bug latent et intermittent — masqué par la longueur du texte la
 plupart du temps, qui n'explose que sur le cas dégénéré d'un témoignage
 d'un seul mot — plus dangereux qu'un plantage systématique, parce que
 personne ne le voit venir en testant sur des exemples "normaux".
+
+### Phase 8 : le Conseil a lu trois relevés
+
+Montage repris tel quel depuis la phase 7 (`ModeleTCN`, résidus,
+GroupNorm — le seul compatible avec les contraintes posées par le
+Conseil aux phases 6 et 7), réentraîné à l'identique sur texte brut puis
+sur texte filtré. Vérification préalable des trois chiffres cités par le
+Conseil (mot de la forme présent en sous-chaîne, insensible à la casse) :
+
+| Forme | Conseil | Vérifié |
+|---|---|---|
+| triangle | 34,7 % | 34,8 % |
+| light | 72,6 % | 72,7 % |
+| circle | 9,9 % | 9,9 % |
+
+**1. Liste des mots interdits (56 mots)** — les 19 classes retenues, les
+2 mots fusionnés en phase 3 (`round`→circle, `changed`→changing), et
+leurs variantes d'écriture/pluriels (liste complète dans
+`phase8.py::VARIANTES`) :
+
+```
+change, changed, changes, changing, chevron, chevrons, cigar, cigars,
+circle, circles, circular, cone, cones, conical, cross, crosses,
+cylinder, cylinders, cylindrical, diamond, diamonds, disc, discs, disk,
+disks, egg, eggs, fireball, fireballs, flash, flashed, flashes,
+flashing, formation, formations, light, lighted, lighting, lights,
+oval, ovals, ovoid, rectangle, rectangles, rectangular, round, rounded,
+rounds, sphere, spheres, spherical, teardrop, teardrops, triangle,
+triangles, triangular
+```
+
+Le tokeniseur casse déjà les mots composés (`cigar-shaped` → `cigar` +
+`shaped`) : bannir la racine suffit, `shaped` seul n'est pas révélateur
+(il accompagne n'importe quelle forme).
+
+**2 et 3. Application et preuve.** Le filtre retire ces jetons du texte
+avant tokenisation, appliqué identiquement à l'entraînement, la
+validation et le test. **Relevés contenant encore un mot interdit après
+filtrage : 0** (compté par le code, sur les 73 177 relevés).
+
+**4. Réentraînement à l'identique et chute :**
+
+| | Accuracy globale (test) | Macro-F1 (test) |
+|---|---|---|
+| Avant (vocabulaire autorisé) | 0,5440 | 0,4950 |
+| Après (vocabulaire interdit) | 0,3507 | 0,1327 |
+| **Chute** | **−19,3 points** | **−36,2 points** |
+
+**La macro-F1 chute presque deux fois plus que l'accuracy globale — et
+la raison n'est pas celle qu'on attendrait.**
+
+![Accuracy par classe, avant/après](figures/phase8_par_classe.png)
+
+Le tableau par classe réserve une vraie surprise par rapport au
+récit du Conseil :
+
+| Classe | Avant | Après | Chute |
+|---|---|---|---|
+| diamond | 0,449 | 0,000 | 44,9 pts |
+| cylinder | 0,396 | 0,000 | 39,6 pts |
+| rectangle | 0,380 | 0,000 | 38,0 pts |
+| chevron | 0,377 | 0,000 | 37,7 pts |
+| egg | 0,370 | 0,000 | 37,0 pts |
+| flash | 0,362 | 0,000 | 36,2 pts |
+| circle | 0,316 | 0,082 | 23,4 pts |
+| triangle | 0,690 | 0,543 | 14,7 pts |
+| **light** | **0,837** | **0,832** | **0,4 pt** |
+
+**`light` — la classe que le Conseil soupçonnait le plus de "recopier
+un mot" (72,6 % de présence littérale) — est celle qui s'effondre le
+moins : quasiment aucune perte.** Ce n'est pas la victoire qu'on pourrait
+y lire. `light` est aussi la plus grosse classe (17 872 relevés, 24,4 %
+du jeu) : c'est la réponse "par défaut" la plus sûre statistiquement
+pour un texte vague ("bright object", "moving light") même sans le mot
+lui-même — le modèle n'a pas besoin de "comprendre" grand-chose pour
+continuer à répondre juste sur `light`, il lui suffit de retomber sur la
+classe la plus probable a priori quand rien d'autre ne distingue le
+texte. Ce n'est pas prouver qu'il comprend `light` ; c'est démontrer
+qu'il n'avait pas besoin du mot pour deviner correctement sur cette
+classe précise — une bonne nouvelle et une mauvaise nouvelle en même
+temps.
+
+**Six classes s'effondrent à zéro** (diamond, cylinder, rectangle,
+chevron, egg, flash — plus que les "deux ou trois" annoncées par
+l'énoncé) : ce sont toutes des classes de taille modeste (367 à 1 418
+relevés), pour lesquelles le mot de la forme n'était sans doute pas
+l'unique indice mais un indice décisif — sans lui, et face à une classe
+majoritaire (`light`, `triangle`) toujours disponible comme filet de
+sécurité pour le modèle, il n'y a plus de raison statistique de risquer
+une réponse rare.
+
+**`circle` surprend aussi** : seulement 9,9 % de ses relevés contenaient
+le mot, et pourtant elle perd 23,4 points. La cause n'est pas
+spécifique à `circle` : c'est un effet de bord général — retirer 56
+mots de tout le corpus rend une bonne partie des relevés plus courts et
+moins informatifs dans l'ensemble (pas seulement ceux de `circle`), et
+la qualité du classifieur se dégrade globalement (l'accuracy globale
+chute de 19,3 points, toutes classes confondues) ; `circle` encaisse
+cette dégradation générale en plus de sa propre perte de signal.
+
+**Pourquoi la macro-F1 chute plus que l'accuracy globale :** l'accuracy
+globale est pondérée par le nombre de relevés par classe — dominée par
+`light` et `triangle`, les deux plus grosses classes, justement les
+moins touchées (−0,4 et −14,7 points). La macro-F1 traite les 19 classes
+à égalité : les six classes tombées à zéro y pèsent autant que `light`
+qui n'a presque pas bougé. Deux façons de résumer le même modèle
+racontent donc deux histoires opposées : "le score global tient à peu
+près" contre "la moitié des formes rares ne sont plus jamais reconnues"
+— et c'est la seconde qui décrit fidèlement ce qui s'est passé.
