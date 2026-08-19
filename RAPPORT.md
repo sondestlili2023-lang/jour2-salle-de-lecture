@@ -436,3 +436,82 @@ moins nombreux, et c'est justement la mesure isolée de C (3e-3 seul, un
 combinée — 2,5e-3 a été retenu après coup précisément parce que 3e-3
 s'était montré trop agressif pour ce jeu de données, même une fois B en
 place.
+
+### Phase 6 : le champ de vision du modèle
+
+`ModeleConv` (phase 3) a un défaut que le pooling global cachait bien :
+une seule couche de convolution (noyau 3) ne voit que 3 mots autour de
+chaque position. Le max/moyenne-pool agrège ensuite l'information de
+tout le relevé, mais *avant* ce pooling, aucune position individuelle
+n'a « vu » plus de 3 mots — le mélange global ne remplace pas un vrai
+contexte construit position par position.
+
+**Longueurs réelles du jeu :** 40 jetons acceptés en entrée, 35 jetons
+pour le relevé le plus long réellement rencontré, 13 en médiane (les
+relevés sont courts — voir l'intro du dossier : "treize mots en
+médiane").
+
+**`ModeleTCN` (`modele.py`)** empile 5 convolutions dilatées causales
+(`BlocDilate`) — noyau 3, dilations 1/2/4/8/16 — sur l'embedding, avant
+le même max+moyenne-pool que `ModeleConv` :
+
+| Couche | Dilation | Ajoute au champ de vision | Total cumulé |
+|---|---|---|---|
+| 1 | 1 | 2 | 3 |
+| 2 | 2 | 4 | 7 |
+| 3 | 4 | 8 | 15 |
+| 4 | 8 | 16 | 31 |
+| 5 | 16 | 32 | **63** |
+
+**63 > 40** (longueur maximale acceptée) : la pile suffit à couvrir tout
+relevé du jeu.
+
+Padding **causal** (à gauche uniquement, pas le padding symétrique par
+défaut de `nn.Conv1d`) : premier essai avec un padding symétrique, le
+champ de vision cumulé de 63 aurait dû suffire, mais la vérification
+expérimentale ci-dessous donnait un écart de `0.000000` — la dernière
+position d'un relevé de 35 jetons ne "voit", avec un padding symétrique,
+que jusqu'à la position 35−31=4 vers l'arrière (l'autre moitié du champ
+part dans le vide, après la fin du relevé) : elle n'atteignait jamais le
+premier mot. Le padding causal fait pointer tout le champ de vision vers
+l'arrière, là où sont les mots à voir.
+
+**Vérification expérimentale** (modèle non entraîné, poids frais — la
+propriété testée est structurelle, pas apprise), sur le relevé le plus
+long du jeu (35 jetons) :
+```
+i was on my way to bed n i sleep next to the window n when i lay down
+i can see the roof of the neighbor so i was trying to get sleep n
+```
+Premier mot changé (`i` → `light`). Écart maximal sur la représentation
+du **dernier jeton, avant pooling** : **0,166** (non nul). Écart sur les
+logits finaux : 0,088. Le premier chiffre est celui qui compte : il
+prouve que le champ de vision cumulé atteint bien la première position
+*avant* le pooling — le second aurait bougé de toute façon, pooling
+global oblige, et ne prouve rien sur la pile elle-même.
+
+**Entraînement — la pile dégrade-t-elle le score ?**
+
+| Montage | val_acc | test_acc |
+|---|---|---|
+| Sans raccourcis résiduels | 0,5408 | 0,5406 |
+| **Avec raccourcis résiduels** | **0,5440** | **0,5448** |
+| Référence phase 3 (`ModeleConv`, 1 couche) | 0,5514 | 0,5502 |
+
+![Effet des raccourcis résiduels](figures/phase6_residus.png)
+
+Empiler 5 couches dégrade bien l'apprentissage sans précaution — c'est
+le problème connu annoncé par l'énoncé : les gradients doivent traverser
+5 couches pour atteindre l'embedding, et la solution connue est le
+raccourci résiduel (`x + couche(x)` au lieu de `couche(x)`, comme dans
+un ResNet), qui laisse le gradient circuler directement. Avec résidus,
+le score remonte de 0,0042 mais reste sous la référence de la phase 3.
+Explication raisonnable : sur des textes aussi courts (13 mots en
+médiane), un pooling global sur une seule couche de convolution capture
+déjà l'essentiel — le bénéfice structurel d'un vrai champ de vision
+ordonné et profond ne se voit pas forcément sur des télégrammes de 13
+mots ; il se justifierait davantage sur des textes plus longs, où
+l'ordre et les dépendances à longue distance comptent plus. Le montage
+"s'entraîne encore" (consigne de validation) : la perte baisse
+proprement dans les deux cas, avec et sans résidus, seul l'écart final
+diffère.
